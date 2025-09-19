@@ -42,7 +42,7 @@ The concept revolves around creating and managing multiple cloud accounts, uploa
    - Maps the account and link associated with each file for modifications.
    - Example:
      ```
-     root/tempCodeRunnerFile.py => ['ciwalo@ext.net', 'ciwalo@txt.net', 'https://mega.co.nz/#!yEkGWSZA!w6vtoXekYwvEQYCrfqBA9VC-3nH0VtTjcpWLjuk']
+     root/tempCodeRunnerFile.py => ['ciwalo@ext.net', 'ciwalo@txt.net', 'https://mega.co.nz/#!yEkGWSZAvEQYCrfqBA9VC-3nH0VtTjcpWLjuk']
      ```
 
 3. **SERVER\_PATHS\_DOWNLOAD.txt**
@@ -50,7 +50,7 @@ The concept revolves around creating and managing multiple cloud accounts, uploa
    - Maps folder paths to corresponding file links.
    - Example:
      ```
-     root/tempCodeRunnerFile.py => https://mega.co.nz/#!yEkGWSZA!w6vtoXekYwvEQdmGoYA9VC-3nH0VtTjcpWLjuk
+     root/tempCodeRunnerFile.py => https://mega.co.nz/#!yEkGWSZA!w6vtoXekYwvE-3nH0VtTjcpWLjuk
      ```
 
 ---
