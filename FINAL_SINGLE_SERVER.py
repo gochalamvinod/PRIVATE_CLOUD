@@ -2,10 +2,8 @@ import json
 import os
 import sys
 import re
-import zipfile
-import requests
+import urllib.request
 from pathlib import Path
-from tqdm import tqdm
 
 try:
     from mega import Mega
@@ -19,7 +17,7 @@ except ImportError:
     from .crypto.encrypt import encrypt_file, decrypt_file
 
 def get_file_name(file_path):
-    """Extracts file or folder name from the path."""
+    """Extracts file or folder name from the path using standard pathlib."""
     return Path(file_path).name
 
 def password_checker(email, password):
@@ -60,7 +58,7 @@ def upload_and_generate_info(login_cookie, file_path, root_path, email, password
     return [email, password, root_path, link]
 
 def file_size(filepath):
-    """Returns the size of the file."""
+    """Returns the size of the file using standard os.path."""
     try:
         if not os.path.exists(filepath):
             raise FileNotFoundError("The specified file does not exist.")
@@ -71,9 +69,9 @@ def file_size(filepath):
         return f"Error: {e}"
 
 def load_accounts_from_json(json_file):
-    """Loads MEGA account credentials from a JSON file."""
+    """Loads MEGA account credentials from a JSON file using standard json."""
     try:
-        with open(json_file, 'r') as file:
+        with open(json_file, 'r', encoding='utf-8') as file:
             accounts = json.load(file)
             return [(account['email'], account['password']) for account in accounts]
     except Exception as e:
@@ -102,7 +100,7 @@ def find_account_with_sufficient_storage(json_file, file_path):
 def path_keeper_server(root_path, link_path, text_file):
     """Appends the root path and link to a server file."""
     try:
-        with open(text_file, 'a') as file:
+        with open(text_file, 'a', encoding='utf-8') as file:
             line = f"{root_path} => {link_path}\n"
             file.write(line)
         return "Path added successfully."
@@ -112,7 +110,7 @@ def path_keeper_server(root_path, link_path, text_file):
 def path_keeper(root_path, text_file):
     """Appends the root path to a file."""
     try:
-        with open(text_file, 'a') as file:
+        with open(text_file, 'a', encoding='utf-8') as file:
             line = f"{root_path}\n"
             file.write(line)
         return "Path added successfully."
@@ -120,7 +118,7 @@ def path_keeper(root_path, text_file):
         return f"Error appending path: {e}"
 
 def upload_folder(login_cookie, folder_path, root_path, email, password):
-    """Uploads a folder to MEGA and generates links."""
+    """Uploads a folder to MEGA and generates links without third-party progress bars."""
     links = []
     files = []
     
@@ -131,14 +129,15 @@ def upload_folder(login_cookie, folder_path, root_path, email, password):
             current_root_path = os.path.join(root_path, relative_path)
             files.append((file_path, current_root_path))
     
-    with tqdm(total=len(files), desc="Uploading Files", unit="file") as progress_bar:
-        for file_path, current_root_path in files:
-            upload_info = upload_and_generate_info(login_cookie, file_path, current_root_path, email, password)
-            links.append(upload_info)
-            path_keeper_server(upload_info[2], [upload_info[0], upload_info[1], upload_info[3]], 'SERVER_PATHS.txt')
-            path_keeper(upload_info[2], 'SERVER.txt')
-            path_keeper_server(upload_info[2], upload_info[3], 'SERVER_PATHS_DOWNLOAD.txt')
-            progress_bar.update(1)
+    total = len(files)
+    print(f"Uploading {total} files from folder...")
+    for idx, (file_path, current_root_path) in enumerate(files, 1):
+        upload_info = upload_and_generate_info(login_cookie, file_path, current_root_path, email, password)
+        links.append(upload_info)
+        path_keeper_server(upload_info[2], [upload_info[0], upload_info[1], upload_info[3]], 'SERVER_PATHS.txt')
+        path_keeper(upload_info[2], 'SERVER.txt')
+        path_keeper_server(upload_info[2], upload_info[3], 'SERVER_PATHS_DOWNLOAD.txt')
+        print(f"  [{idx}/{total}] Uploaded: {current_root_path}")
     
     return links
 
@@ -152,7 +151,7 @@ def create_folder_if_not_exists(login_cookie, folder_path):
     return folder
 
 def split_large_file(file_path, chunk_size=19 * 1024 * 1024 * 1024):
-    """Splits large files into smaller parts (19GB default)."""
+    """Splits large files into smaller parts using standard streaming reads."""
     file_parts = []
     with open(file_path, 'rb') as f:
         part_number = 1
@@ -173,8 +172,8 @@ def _part_sort_key(path_str):
 
 def join_parts(parts, output_path, buffer_size=1024 * 1024):
     """
-    Reassembles .partN files in numeric order into output_path with streaming reads.
-    Does not load entire files into memory.
+    Reassembles .partN files in numeric order into output_path using streaming reads.
+    Pure standard library: does not load entire files into memory.
     """
     sorted_parts = sorted(parts, key=_part_sort_key)
     with open(output_path, 'wb') as outfile:
@@ -188,11 +187,13 @@ def join_parts(parts, output_path, buffer_size=1024 * 1024):
     return output_path
 
 def download_file_from_url(url, download_path):
-    """Downloads a file from a URL with streaming chunks."""
+    """
+    Downloads a file from a URL using standard Python urllib (no external requests library).
+    Streams chunks directly to disk.
+    """
     try:
-        response = requests.get(url, stream=True)
-        with open(download_path, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
+        with urllib.request.urlopen(url) as response, open(download_path, 'wb') as f:
+            while chunk := response.read(8192):
                 f.write(chunk)
         print(f"Downloaded: {download_path}")
         return download_path
@@ -216,12 +217,12 @@ def main(file_path, target_path='root', url=None, encrypt=False):
     actual_upload_path = file_path
     if encrypt and not os.path.isdir(file_path):
         encrypted_path = f"{file_path}.enc"
-        print(f"Encrypting file with AES-256-GCM before upload...")
+        print("Encrypting file with AES-256-GCM before upload...")
         encrypt_file(file_path, encrypted_path)
         actual_upload_path = encrypted_path
         print(f"File encrypted to: {encrypted_path}")
 
-    # Ask for the JSON file with account credentials
+    # Read account credentials JSON
     json_file = 'mega_credentials.json'
     if not os.path.exists(json_file):
         print("The JSON file does not exist. Please check and try again.")
@@ -237,20 +238,20 @@ def main(file_path, target_path='root', url=None, encrypt=False):
         print("Failed to log in to MEGA.")
         return
     
-    # Check if the target folder exists, if not, create it
+    # Check if target folder exists
     folder_path = target_path
     if folder_path != 'root':
         create_folder_if_not_exists(login_cookie, folder_path)
     
     root_path = os.path.join(folder_path, get_file_name(actual_upload_path))
     
-    # If it's a folder, upload it
+    # If folder, upload all files
     if os.path.isdir(actual_upload_path):
         print("Uploading folder...")
         upload_links = upload_folder(login_cookie, actual_upload_path, root_path, email_password[0], email_password[1])
         print("Folder uploaded successfully!")
     
-    # If it's a large file, split it and upload
+    # If large file, split and upload
     elif file_size(actual_upload_path) > 19 * 1024 * 1024 * 1024:  # 19GB
         print("File is too large, splitting into smaller parts...")
         file_parts = split_large_file(actual_upload_path)
@@ -259,18 +260,16 @@ def main(file_path, target_path='root', url=None, encrypt=False):
             print(f"Uploaded part: {upload_info[3]}")
         print("Large file uploaded successfully!")
     
-    # If it's a regular file, upload it directly
+    # Standard file upload
     else:
         print("Uploading file...")
-        with tqdm(total=1, desc="Uploading File", unit="file") as progress_bar:
-            upload_info = upload_and_generate_info(login_cookie, actual_upload_path, root_path, email_password[0], email_password[1])
-            path_keeper_server(upload_info[2], [upload_info[0], upload_info[1], upload_info[3]], 'SERVER_PATHS.txt')
-            path_keeper(upload_info[2], 'SERVER.txt')
-            path_keeper_server(upload_info[2], upload_info[3], 'SERVER_PATHS_DOWNLOAD.txt')
-            progress_bar.update(1)
+        upload_info = upload_and_generate_info(login_cookie, actual_upload_path, root_path, email_password[0], email_password[1])
+        path_keeper_server(upload_info[2], [upload_info[0], upload_info[1], upload_info[3]], 'SERVER_PATHS.txt')
+        path_keeper(upload_info[2], 'SERVER.txt')
+        path_keeper_server(upload_info[2], upload_info[3], 'SERVER_PATHS_DOWNLOAD.txt')
         print(f"File uploaded successfully! Link: {upload_info[3]}")
 
-    # Clean up the temporary file if it was downloaded
+    # Clean up temporary URL file
     if url and os.path.exists('temp_downloaded_file'):
         os.remove('temp_downloaded_file')
 
