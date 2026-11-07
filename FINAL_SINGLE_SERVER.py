@@ -1,14 +1,22 @@
 import json
 import os
 import sys
+import re
 import zipfile
 import requests
-from mega import Mega
 from pathlib import Path
 from tqdm import tqdm
 
-# Initialize Mega instance
-mega = Mega()
+try:
+    from mega import Mega
+    mega = Mega()
+except ImportError:
+    mega = None
+
+try:
+    from crypto.encrypt import encrypt_file, decrypt_file
+except ImportError:
+    from .crypto.encrypt import encrypt_file, decrypt_file
 
 def get_file_name(file_path):
     """Extracts file or folder name from the path."""
@@ -16,6 +24,8 @@ def get_file_name(file_path):
 
 def password_checker(email, password):
     """Checks if the credentials are valid."""
+    if not mega:
+        return False
     try:
         mega.login(email, password)
         return True
@@ -123,7 +133,6 @@ def upload_folder(login_cookie, folder_path, root_path, email, password):
     
     with tqdm(total=len(files), desc="Uploading Files", unit="file") as progress_bar:
         for file_path, current_root_path in files:
-            # Upload the file and get the link
             upload_info = upload_and_generate_info(login_cookie, file_path, current_root_path, email, password)
             links.append(upload_info)
             path_keeper_server(upload_info[2], [upload_info[0], upload_info[1], upload_info[3]], 'SERVER_PATHS.txt')
@@ -135,9 +144,10 @@ def upload_folder(login_cookie, folder_path, root_path, email, password):
 
 def create_folder_if_not_exists(login_cookie, folder_path):
     """Checks if the folder exists on MEGA, and creates it if not."""
+    if not mega:
+        return None
     folder = mega.find(folder_path)
     if not folder:
-        # If folder doesn't exist, create it
         folder = mega.create_folder(folder_path)
     return folder
 
@@ -154,8 +164,31 @@ def split_large_file(file_path, chunk_size=19 * 1024 * 1024 * 1024):
             part_number += 1
     return file_parts
 
+def _part_sort_key(path_str):
+    """Extract numeric suffix for proper ordering (e.g. part1, part2, ..., part10)."""
+    match = re.search(r'\.part(\d+)$', str(path_str))
+    if match:
+        return int(match.group(1))
+    return str(path_str)
+
+def join_parts(parts, output_path, buffer_size=1024 * 1024):
+    """
+    Reassembles .partN files in numeric order into output_path with streaming reads.
+    Does not load entire files into memory.
+    """
+    sorted_parts = sorted(parts, key=_part_sort_key)
+    with open(output_path, 'wb') as outfile:
+        for part in sorted_parts:
+            with open(part, 'rb') as partfile:
+                while True:
+                    chunk = partfile.read(buffer_size)
+                    if not chunk:
+                        break
+                    outfile.write(chunk)
+    return output_path
+
 def download_file_from_url(url, download_path):
-    """Downloads a file from a URL."""
+    """Downloads a file from a URL with streaming chunks."""
     try:
         response = requests.get(url, stream=True)
         with open(download_path, 'wb') as f:
@@ -166,7 +199,7 @@ def download_file_from_url(url, download_path):
     except Exception as e:
         return f"Error downloading file: {e}"
 
-def main(file_path, target_path='root', url=None):
+def main(file_path, target_path='root', url=None, encrypt=False):
     print('Welcome to MEGA file uploader')
     
     if url:
@@ -179,13 +212,22 @@ def main(file_path, target_path='root', url=None):
         print("The specified path does not exist. Please check and try again.")
         return
     
+    # Opt-in client-side encryption before upload
+    actual_upload_path = file_path
+    if encrypt and not os.path.isdir(file_path):
+        encrypted_path = f"{file_path}.enc"
+        print(f"Encrypting file with AES-256-GCM before upload...")
+        encrypt_file(file_path, encrypted_path)
+        actual_upload_path = encrypted_path
+        print(f"File encrypted to: {encrypted_path}")
+
     # Ask for the JSON file with account credentials
     json_file = 'mega_credentials.json'
     if not os.path.exists(json_file):
         print("The JSON file does not exist. Please check and try again.")
         return
     
-    email_password = find_account_with_sufficient_storage(json_file, file_path)
+    email_password = find_account_with_sufficient_storage(json_file, actual_upload_path)
     if isinstance(email_password, str):
         print(email_password)
         return
@@ -200,28 +242,28 @@ def main(file_path, target_path='root', url=None):
     if folder_path != 'root':
         create_folder_if_not_exists(login_cookie, folder_path)
     
-    root_path = os.path.join(folder_path, get_file_name(file_path))  # Full path in target folder
+    root_path = os.path.join(folder_path, get_file_name(actual_upload_path))
     
     # If it's a folder, upload it
-    if os.path.isdir(file_path):
+    if os.path.isdir(actual_upload_path):
         print("Uploading folder...")
-        upload_links = upload_folder(login_cookie, file_path, root_path, email_password[0], email_password[1])
-        print(f"Folder uploaded successfully!")
+        upload_links = upload_folder(login_cookie, actual_upload_path, root_path, email_password[0], email_password[1])
+        print("Folder uploaded successfully!")
     
     # If it's a large file, split it and upload
-    elif file_size(file_path) > 19 * 1024 * 1024 * 1024:  # 19GB
+    elif file_size(actual_upload_path) > 19 * 1024 * 1024 * 1024:  # 19GB
         print("File is too large, splitting into smaller parts...")
-        file_parts = split_large_file(file_path)
+        file_parts = split_large_file(actual_upload_path)
         for part in file_parts:
             upload_info = upload_and_generate_info(login_cookie, part, root_path, email_password[0], email_password[1])
             print(f"Uploaded part: {upload_info[3]}")
-        print(f"Large file uploaded successfully!")
+        print("Large file uploaded successfully!")
     
-    # If it's a small file, upload it directly
+    # If it's a regular file, upload it directly
     else:
         print("Uploading file...")
         with tqdm(total=1, desc="Uploading File", unit="file") as progress_bar:
-            upload_info = upload_and_generate_info(login_cookie, file_path, root_path, email_password[0], email_password[1])
+            upload_info = upload_and_generate_info(login_cookie, actual_upload_path, root_path, email_password[0], email_password[1])
             path_keeper_server(upload_info[2], [upload_info[0], upload_info[1], upload_info[3]], 'SERVER_PATHS.txt')
             path_keeper(upload_info[2], 'SERVER.txt')
             path_keeper_server(upload_info[2], upload_info[3], 'SERVER_PATHS_DOWNLOAD.txt')
@@ -229,17 +271,45 @@ def main(file_path, target_path='root', url=None):
         print(f"File uploaded successfully! Link: {upload_info[3]}")
 
     # Clean up the temporary file if it was downloaded
-    if url:
+    if url and os.path.exists('temp_downloaded_file'):
         os.remove('temp_downloaded_file')
 
-if __name__ == "__main__":   
-    print('\n\n\n'+r'       EXAMPLE : python -u "c:FINAL_SINGLE_SERVER.py" "C:\Users\E.jpg" "root\hello"'+'\n\n\n') 
+if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python filename.py <file_path> [target_path] [url]")
-    else:
-        file_path = sys.argv[1].strip("\\/")  # Removes leading and trailing slashes/backslashes
-        target_path = sys.argv[2].strip("\\/") if len(sys.argv) > 2 else 'root'
-        url = sys.argv[3] if len(sys.argv) > 3 else None
-        
-        # Call the main function with the sanitized file_path, target_path, and url
-        main(file_path, target_path, url)
+        print("Usage:")
+        print("  Upload:   python FINAL_SINGLE_SERVER.py <file_path> [target_path] [url] [--encrypt]")
+        print("  Download: python FINAL_SINGLE_SERVER.py --download <output_path> <part1> <part2> ...")
+        print("  Decrypt:  python FINAL_SINGLE_SERVER.py --decrypt <encrypted_file> [output_file]")
+        sys.exit(0)
+
+    # CLI command routing
+    if sys.argv[1] == "--download":
+        if len(sys.argv) < 4:
+            print("Usage: python FINAL_SINGLE_SERVER.py --download <output_path> <part1> <part2> ...")
+            sys.exit(1)
+        out_path = sys.argv[2]
+        part_files = sys.argv[3:]
+        print(f"Reassembling {len(part_files)} parts into {out_path}...")
+        join_parts(part_files, out_path)
+        print(f"Successfully reassembled: {out_path}")
+        sys.exit(0)
+
+    if sys.argv[1] == "--decrypt":
+        if len(sys.argv) < 3:
+            print("Usage: python FINAL_SINGLE_SERVER.py --decrypt <encrypted_file> [output_file]")
+            sys.exit(1)
+        enc_file = sys.argv[2]
+        dec_file = sys.argv[3] if len(sys.argv) > 3 else (enc_file[:-4] if enc_file.endswith(".enc") else f"{enc_file}.dec")
+        print(f"Decrypting {enc_file} to {dec_file}...")
+        decrypt_file(enc_file, dec_file)
+        print(f"Successfully decrypted: {dec_file}")
+        sys.exit(0)
+
+    encrypt_flag = "--encrypt" in sys.argv
+    clean_args = [a for a in sys.argv[1:] if a != "--encrypt"]
+    
+    file_path = clean_args[0].strip("\\/")
+    target_path = clean_args[1].strip("\\/") if len(clean_args) > 1 else 'root'
+    url = clean_args[2] if len(clean_args) > 2 else None
+    
+    main(file_path, target_path, url, encrypt=encrypt_flag)

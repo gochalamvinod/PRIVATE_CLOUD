@@ -1,99 +1,120 @@
-# Project README
+# PRIVATE_CLOUD — Multi-Account MEGA Cloud Storage Manager
 
 ## Overview
 
-This project was created as a test of my coding skills and aims to provide a practical solution for managing unlimited private cloud storage by utilizing multiple cloud accounts such as MEGA, Google Drive, and others. The goal is to aggregate limited storage from individual accounts into a unified, unlimited private storage system.
+**PRIVATE_CLOUD** is a Python utility designed to manage file storage across multiple user-provided [MEGA](https://mega.nz/) accounts. It aggregates storage capacities across accounts, monitors available quota, splits oversized files into manageable chunks, reassembles split parts upon download, and provides opt-in client-side AES-256-GCM encryption.
+
+> **Implementation Note:**
+> - **Supported Provider:** MEGA is currently the **only supported cloud provider** (via `mega.py`). Support for additional providers (such as Google Drive) is a planned conceptual enhancement, not yet implemented.
+> - **Account Registration:** This repository does **not** provide account creation automation. Users must provide their own legitimately registered MEGA credentials.
+> - **Storage Scope:** This tool aggregates individual account quotas; it does **not** create "unlimited" storage out of thin air.
 
 ---
 
-## Key Concept
+## Features & Implementation Status
 
-### Idea Behind the Project
-
-The concept revolves around creating and managing multiple cloud accounts, uploading files to these accounts, generating public links for the files, and integrating these links into a cohesive folder structure using a custom algorithm. This approach allows combining storage from various accounts into a seamless private drive experience.
+| Feature | Status | Details |
+|---|---|---|
+| **MEGA Multi-Account Aggregation** | **Implemented** | Reads credentials from `mega_credentials.json`, checks available quota per account, selects account with sufficient space |
+| **Large File Splitting** | **Implemented** | `split_large_file(file_path, chunk_size)` divides files > 19 GB into `.partN` files |
+| **Streaming Reassembly** | **Implemented** | `join_parts(parts, output_path)` streams `.partN` files in numeric order with zero full-memory buffering |
+| **Client-Side Encryption** | **Implemented** | `crypto/encrypt.py`: AES-256-GCM, 1 MiB chunked streaming, Scrypt key derivation, per-chunk authenticated nonces |
+| **HTML Catalog Generator** | **Implemented** | `server_html_creater.py` builds browsable `output.html` from path maps |
+| **Google Drive / Other Providers** | *Planned* | Conceptual roadmap item; no Google Drive code exists in this repository |
 
 ---
 
-## Logic Behind the Code
+## Security & Client-Side Encryption
 
-### Core Features
+Client-side encryption is provided via the `crypto` package using standard primitives from the Python `cryptography` library:
+- **Cipher:** AES-256-GCM (Authenticated Encryption with Associated Data).
+- **Key Derivation:** Scrypt (`n=16384`, `r=8`, `p=1`) with a 16-byte cryptographically secure random salt stored in the file header.
+- **Nonce Scheme:** 12-byte nonce per chunk composed of an 8-byte random prefix plus a 4-byte big-endian chunk counter.
+- **Integrity Authentication:** Chunk sequence index is passed as Associated Authenticated Data (AAD) to prevent reordering or truncation.
+- **Zero Disk Exposure:** The encryption passphrase and derived keys are held in memory only and never written to disk.
 
-- **Cloud Storage Integration**: Files are uploaded to various cloud accounts like MEGA.
-- **Public Links**: Public links for the uploaded files are generated and stored.
-- **Custom Algorithms**: Personal algorithms map these links to a private folder structure.
+---
 
-### Implementation Details
+## Installation & Setup
 
-- The local device serves as the primary drive platform.
-- Folder structures and link mappings are managed using three critical and sensitive text files:
+### 1. Prerequisites
+- Python 3.10+
+- Install dependencies:
+```bash
+pip install -r requirements.txt
+```
 
-#### Sensitive Files
+### 2. Configure Credentials
+Copy the example credentials file and insert your personal MEGA account credentials:
+```bash
+cp mega_credentials.example.json mega_credentials.json
+```
+PowerShell:
+```powershell
+Copy-Item mega_credentials.example.json mega_credentials.json
+```
 
-1. **SERVER.txt**
-
-   - Stores the folder structure of the private drive.
-   - Example:
-     ```
-     root/tempCodeRunnerFile.py
-     ```
-
-2. **SERVER\_PATHS.txt**
-
-   - Maps the account and link associated with each file for modifications.
-   - Example:
-     ```
-     root/tempCodeRunnerFile.py => ['ciwalo@ext.net', 'ciwalo@txt.net', 'https://mega.co.nz/#!yEkGWSZAvEQYCrfqBA9VC-3nH0VtTjcpWLjuk']
-     ```
-
-3. **SERVER\_PATHS\_DOWNLOAD.txt**
-
-   - Maps folder paths to corresponding file links.
-   - Example:
-     ```
-     root/tempCodeRunnerFile.py => https://mega.co.nz/#!yEkGWSZA!w6vtoXekYwvE-3nH0VtTjcpWLjuk
-     ```
+Structure of `mega_credentials.json`:
+```json
+[
+  {
+    "email": "user@example.com",
+    "password": "your_secure_password"
+  }
+]
+```
+*(Note: `mega_credentials.json` is ignored by `.gitignore` and must never be committed).*
 
 ---
 
 ## Usage
 
-1. **Set Up**:
+### Uploading Files or Folders
+```bash
+python FINAL_SINGLE_SERVER.py "path/to/local/file.zip" "target/remote/folder"
+```
 
-   - Ensure cloud accounts are created and ready for use.
-   - Prepare the folder structure in `SERVER.txt`.
+To encrypt the file client-side before uploading:
+```bash
+python FINAL_SINGLE_SERVER.py "path/to/local/file.zip" "target/remote/folder" --encrypt
+```
 
-2. **File Upload**:
+### Reassembling Split Parts (--download)
+To rejoin split `.partN` files into the original file:
+```bash
+python FINAL_SINGLE_SERVER.py --download "restored_file.iso" file.iso.part1 file.iso.part2 file.iso.part3
+```
 
-   - Upload files to the respective cloud accounts.
-   - Generate public links for the files.
-
-3. **Integration**:
-
-   - Use custom algorithms to map the folder structure and associate it with cloud links.
-   - Update `SERVER_PATHS.txt` and `SERVER_PATHS_DOWNLOAD.txt` accordingly.
-
-4. **Access Files**:
-
-   - Navigate through the local folder structure to access integrated cloud storage seamlessly.
-
----
-
-## Future Enhancements
-
-- Automating the creation and management of multiple cloud accounts.
-- Adding support for additional cloud storage providers.
-- Enhancing security measures for sensitive file handling.
-- Developing a user-friendly interface for managing the private drive.
+### Decrypting Encrypted Files (--decrypt)
+```bash
+python FINAL_SINGLE_SERVER.py --decrypt "file.zip.enc" "file.zip"
+```
 
 ---
 
-## Disclaimer
+## Running Automated Tests
 
-This project involves handling sensitive data, and appropriate measures should be taken to ensure its security. Unauthorized use of cloud services or violation of their terms and conditions may result in penalties or account suspension.
+A dedicated test suite is included to verify splitting/reassembly and cryptographic integrity:
+- `tests/test_split_join.py`: Generates a 5 MB random binary file, splits into 512 KB chunks, rejoins with `join_parts`, and asserts SHA-256 digest match.
+- `tests/test_crypto.py`: Verifies round-trip encryption/decryption, wrong-passphrase rejection, and ciphertext tamper detection.
+
+Run all tests:
+```bash
+python -m unittest discover -s tests -p "test_*.py"
+```
+
+PowerShell:
+```powershell
+python -m unittest discover -s tests -p "test_*.py"
+```
 
 ---
 
-## Credits
+## Terms of Service & Security Disclaimer
 
-Developed by Gochalam vinod. For testing, learning, and innovative problem-solving in cloud storage management.
+This project is intended for educational purposes, personal storage backup, and architectural exploration. Users must comply with the terms of service of any cloud storage provider they interact with (including MEGA). Automated account generation, quota abuse, or storing unauthorized material is strictly against terms of service and may result in account termination.
 
+---
+
+## License
+Distributed under the MIT License. Developed by Gochalam Vinod.
