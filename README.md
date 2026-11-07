@@ -2,7 +2,7 @@
 
 ## Overview
 
-**PRIVATE_CLOUD** is a lightweight Python utility designed to manage file storage across multiple user-provided [MEGA](https://mega.nz/) accounts. It aggregates storage capacities across accounts, monitors available quota, splits oversized files into manageable chunks, reassembles split parts upon download, and provides opt-in client-side AES-256-GCM encryption.
+**PRIVATE_CLOUD** is a Python utility designed to manage file storage across multiple user-provided [MEGA](https://mega.nz/) accounts. It aggregates storage capacities across accounts, monitors available quota, splits oversized files into manageable chunks, reassembles split parts upon download, provides opt-in client-side AES-256-GCM encryption, and generates an interactive `output.html` to view and browse files.
 
 > **Implementation Note:**
 > - **Supported Provider:** MEGA is currently the **only supported cloud provider** (via `mega.py`). Support for additional providers (such as Google Drive) is a planned conceptual enhancement, not yet implemented.
@@ -11,25 +11,24 @@
 
 ---
 
-## 📦 Dependencies & Library Architecture
+## 📦 Dependencies & Libraries Used
 
-To keep the codebase simple, transparent, and interview-ready, external third-party dependencies are strictly minimized to only **two packages**:
+All dependencies are explicitly declared in `requirements.txt` to keep the architecture clean and interview-explainable:
 
 ### External Libraries (`requirements.txt`)
 | Library | Version | Purpose & Interview Explanation |
 | :--- | :--- | :--- |
-| **`cryptography`** | `>=41.0.0` | Provides audited, industry-standard cryptographic primitives for client-side **AES-256-GCM** authenticated encryption and **Scrypt** password key derivation. |
-| **`mega.py`** | `>=1.0.8` | Python SDK used to communicate with the MEGA API (authentication, storage quota inspection, file upload, and public link retrieval). |
+| **`cryptography`** | `>=41.0.0` | Audited cryptographic primitives for client-side **AES-256-GCM** authenticated encryption and **Scrypt** password-based key derivation. |
+| **`requests`** | `>=2.28.0` | High-performance streaming HTTP downloads for remote files directly to disk (with built-in `urllib` fallback). |
+| **`mega.py`** | `>=1.0.8` | Python SDK used to communicate with the MEGA API (login, storage quota queries, file uploads, and public link retrieval). |
 
-### Built-in Python Standard Libraries (Zero Third-Party Bloat)
-All other features rely entirely on Python's built-in standard library modules:
-- **`urllib.request`**: Replaces the external `requests` package for streaming HTTP downloads directly to disk.
+### Built-in Python Standard Libraries
 - **`os` & `pathlib`**: File system navigation, path normalization, and file size detection.
 - **`struct`**: Packs binary chunk lengths, 4-byte counters, and nonces for cryptographic packet framing.
 - **`json`**: Secure parsing of `mega_credentials.json` account definitions.
 - **`hashlib`**: Generates SHA-256 digests in unit tests to verify byte-for-byte integrity after file reassembly.
 - **`unittest` & `tempfile`**: Built-in test runner and isolated test fixture creation without needing `pytest`.
-- **`time` & `subprocess`**: Powers `WATCHDOG.py` by checking `os.path.getmtime` every second, avoiding the heavy third-party `watchdog` package.
+- **`time` & `subprocess`**: Powers `WATCHDOG.py` by monitoring `os.path.getmtime` for file updates.
 
 ---
 
@@ -41,8 +40,23 @@ All other features rely entirely on Python's built-in standard library modules:
 | **Large File Splitting** | **Implemented** | `split_large_file(file_path, chunk_size)` divides files > 19 GB into `.partN` files |
 | **Streaming Reassembly** | **Implemented** | `join_parts(parts, output_path)` streams `.partN` files in numeric order with zero full-memory buffering |
 | **Client-Side Encryption** | **Implemented** | `crypto/encrypt.py`: AES-256-GCM, 1 MiB chunked streaming, Scrypt key derivation, per-chunk authenticated nonces |
-| **HTML Catalog Generator** | **Implemented** | `server_html_creater.py` builds browsable `output.html` from path maps |
+| **HTML File Viewer** | **Implemented** | `server_html_creater.py` builds browsable `output.html` from path maps so you can view all files and links in your browser |
 | **Google Drive / Other Providers** | *Planned* | Conceptual roadmap item; no Google Drive code exists in this repository |
+
+---
+
+## Viewing & Browsing Your Files (`output.html`)
+
+To view your files, folders, and cloud download links in an interactive web interface:
+```bash
+python server_html_creater.py
+```
+This generates `output.html` in the project directory. Double-click `output.html` or open it in any web browser to browse your folder hierarchy and click direct download links.
+
+To automatically rebuild `output.html` whenever new files are uploaded:
+```bash
+python WATCHDOG.py
+```
 
 ---
 

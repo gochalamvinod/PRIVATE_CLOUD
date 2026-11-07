@@ -6,6 +6,11 @@ import urllib.request
 from pathlib import Path
 
 try:
+    import requests
+except ImportError:
+    requests = None
+
+try:
     from mega import Mega
     mega = Mega()
 except ImportError:
@@ -17,7 +22,7 @@ except ImportError:
     from .crypto.encrypt import encrypt_file, decrypt_file
 
 def get_file_name(file_path):
-    """Extracts file or folder name from the path using standard pathlib."""
+    """Extracts file or folder name from the path."""
     return Path(file_path).name
 
 def password_checker(email, password):
@@ -58,7 +63,7 @@ def upload_and_generate_info(login_cookie, file_path, root_path, email, password
     return [email, password, root_path, link]
 
 def file_size(filepath):
-    """Returns the size of the file using standard os.path."""
+    """Returns the size of the file."""
     try:
         if not os.path.exists(filepath):
             raise FileNotFoundError("The specified file does not exist.")
@@ -69,7 +74,7 @@ def file_size(filepath):
         return f"Error: {e}"
 
 def load_accounts_from_json(json_file):
-    """Loads MEGA account credentials from a JSON file using standard json."""
+    """Loads MEGA account credentials from a JSON file."""
     try:
         with open(json_file, 'r', encoding='utf-8') as file:
             accounts = json.load(file)
@@ -118,7 +123,7 @@ def path_keeper(root_path, text_file):
         return f"Error appending path: {e}"
 
 def upload_folder(login_cookie, folder_path, root_path, email, password):
-    """Uploads a folder to MEGA and generates links without third-party progress bars."""
+    """Uploads a folder to MEGA and generates links."""
     links = []
     files = []
     
@@ -151,7 +156,7 @@ def create_folder_if_not_exists(login_cookie, folder_path):
     return folder
 
 def split_large_file(file_path, chunk_size=19 * 1024 * 1024 * 1024):
-    """Splits large files into smaller parts using standard streaming reads."""
+    """Splits large files into smaller parts using streaming reads."""
     file_parts = []
     with open(file_path, 'rb') as f:
         part_number = 1
@@ -173,7 +178,7 @@ def _part_sort_key(path_str):
 def join_parts(parts, output_path, buffer_size=1024 * 1024):
     """
     Reassembles .partN files in numeric order into output_path using streaming reads.
-    Pure standard library: does not load entire files into memory.
+    Does not load entire files into memory.
     """
     sorted_parts = sorted(parts, key=_part_sort_key)
     with open(output_path, 'wb') as outfile:
@@ -188,13 +193,19 @@ def join_parts(parts, output_path, buffer_size=1024 * 1024):
 
 def download_file_from_url(url, download_path):
     """
-    Downloads a file from a URL using standard Python urllib (no external requests library).
-    Streams chunks directly to disk.
+    Downloads a file from a URL using streaming chunks.
+    Uses requests if available, with urllib fallback for maximum portability.
     """
     try:
-        with urllib.request.urlopen(url) as response, open(download_path, 'wb') as f:
-            while chunk := response.read(8192):
-                f.write(chunk)
+        if requests:
+            response = requests.get(url, stream=True)
+            with open(download_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+        else:
+            with urllib.request.urlopen(url) as response, open(download_path, 'wb') as f:
+                while chunk := response.read(8192):
+                    f.write(chunk)
         print(f"Downloaded: {download_path}")
         return download_path
     except Exception as e:
