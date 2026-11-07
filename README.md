@@ -2,12 +2,34 @@
 
 ## Overview
 
-**PRIVATE_CLOUD** is a Python utility designed to manage file storage across multiple user-provided [MEGA](https://mega.nz/) accounts. It aggregates storage capacities across accounts, monitors available quota, splits oversized files into manageable chunks, reassembles split parts upon download, and provides opt-in client-side AES-256-GCM encryption.
+**PRIVATE_CLOUD** is a lightweight Python utility designed to manage file storage across multiple user-provided [MEGA](https://mega.nz/) accounts. It aggregates storage capacities across accounts, monitors available quota, splits oversized files into manageable chunks, reassembles split parts upon download, and provides opt-in client-side AES-256-GCM encryption.
 
 > **Implementation Note:**
 > - **Supported Provider:** MEGA is currently the **only supported cloud provider** (via `mega.py`). Support for additional providers (such as Google Drive) is a planned conceptual enhancement, not yet implemented.
 > - **Account Registration:** This repository does **not** provide account creation automation. Users must provide their own legitimately registered MEGA credentials.
 > - **Storage Scope:** This tool aggregates individual account quotas; it does **not** create "unlimited" storage out of thin air.
+
+---
+
+## 📦 Dependencies & Library Architecture
+
+To keep the codebase simple, transparent, and interview-ready, external third-party dependencies are strictly minimized to only **two packages**:
+
+### External Libraries (`requirements.txt`)
+| Library | Version | Purpose & Interview Explanation |
+| :--- | :--- | :--- |
+| **`cryptography`** | `>=41.0.0` | Provides audited, industry-standard cryptographic primitives for client-side **AES-256-GCM** authenticated encryption and **Scrypt** password key derivation. |
+| **`mega.py`** | `>=1.0.8` | Python SDK used to communicate with the MEGA API (authentication, storage quota inspection, file upload, and public link retrieval). |
+
+### Built-in Python Standard Libraries (Zero Third-Party Bloat)
+All other features rely entirely on Python's built-in standard library modules:
+- **`urllib.request`**: Replaces the external `requests` package for streaming HTTP downloads directly to disk.
+- **`os` & `pathlib`**: File system navigation, path normalization, and file size detection.
+- **`struct`**: Packs binary chunk lengths, 4-byte counters, and nonces for cryptographic packet framing.
+- **`json`**: Secure parsing of `mega_credentials.json` account definitions.
+- **`hashlib`**: Generates SHA-256 digests in unit tests to verify byte-for-byte integrity after file reassembly.
+- **`unittest` & `tempfile`**: Built-in test runner and isolated test fixture creation without needing `pytest`.
+- **`time` & `subprocess`**: Powers `WATCHDOG.py` by checking `os.path.getmtime` every second, avoiding the heavy third-party `watchdog` package.
 
 ---
 
@@ -41,6 +63,11 @@ Client-side encryption is provided via the `crypto` package using standard primi
 - Python 3.10+
 - Install dependencies:
 ```bash
+pip install -r requirements.txt
+```
+
+PowerShell:
+```powershell
 pip install -r requirements.txt
 ```
 
